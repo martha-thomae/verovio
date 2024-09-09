@@ -47,7 +47,7 @@ FunctorCode ScoringUpFunctor::VisitLayer(Layer *layer)
     data_PROLATIO prolatio = m_currentMensur->GetProlatio();*/
     // Doesn't get it from the staffDef, right?//
     if (!dursInVoiceSameMensur.empty()){
-        listOfSequences = SubdivideSeq(dursInVoiceSameMensur);
+        listOfSequences = SubdivideIntoBoundedSequences(dursInVoiceSameMensur);
         FindDurQuals(listOfSequences);
         dursInVoiceSameMensur = {}; //restart for next voice (layer)
     }
@@ -84,30 +84,57 @@ FunctorCode ScoringUpFunctor::VisitLayerElement(LayerElement *layerElement)
     }return FUNCTOR_CONTINUE;
 }
 
-std::vector<std::vector<std::pair<LayerElement*, data_DURATION>>> ScoringUpFunctor::SubdivideSeq(std::vector<std::pair<LayerElement*, data_DURATION>> dursInVoiceSameMensur)
+std::vector<std::vector<std::pair<LayerElement*, data_DURATION>>> ScoringUpFunctor::SubdivideIntoBoundedSequences(std::vector<std::pair<LayerElement*, data_DURATION>> dursInVoiceSameMensur)
 {
     std::vector<std::vector<std::pair<LayerElement*, data_DURATION>>> listOfSequences = {};
-    std::vector<std::pair<LayerElement*, data_DURATION>> sequence = {};
+    std::vector<std::pair<LayerElement*, data_DURATION>> boundedSequence = {};
     for(std::pair<LayerElement*, data_DURATION> elementDurPair : dursInVoiceSameMensur){
         data_DURATION dur = elementDurPair.second;
         if (dur == DURATION_brevis || dur == DURATION_longa || dur == DURATION_maxima) {
-            sequence.insert(sequence.end(), elementDurPair);
-            listOfSequences.insert(listOfSequences.end(), sequence);
-            sequence = {elementDurPair};
+            boundedSequence.insert(boundedSequence.end(), elementDurPair);
+            listOfSequences.insert(listOfSequences.end(), boundedSequence);
+            boundedSequence = {elementDurPair};
         } else {
-            sequence.insert(sequence.end(), elementDurPair);
+            boundedSequence.insert(boundedSequence.end(), elementDurPair);
         }LogDebug("dur is:", dur);
     }
     return listOfSequences;
 }
 
-void ScoringUpFunctor::FindDurQuals(std::vector<std::vector<std::pair<LayerElement*, data_DURATION>>> listOfSequences){
+/*void ScoringUpFunctor::FindDurQuals(std::vector<std::vector<std::pair<LayerElement*, data_DURATION>>> listOfSequences){
     for (std::vector<std::pair<LayerElement*, data_DURATION>> subseq: listOfSequences){
         FindDurQuals(subseq);
     }
+}*/
+
+void ScoringUpFunctor::ProcessBoundedSequences(std::vector<std::vector<std::pair<LayerElement*, data_DURATION>>> listOfSequences){
+    for (std::vector<std::pair<LayerElement*, data_DURATION>> sequence: listOfSequences){
+        std::vector<std::pair<LayerElement*, data_DURATION>> middleSeq = GetBoundedNotes(sequence);
+        std::pair<LayerElement*, data_DURATION> dotElementDurPair = FindDotOfDivision(middleSeq);
+        LayerElement* dotElement = dotElementDurPair.first;
+        if (dotElement == NULL) {
+            double valueInMinimsInMiddleSeq = GetValueInMinims(middleSeq);
+            double valueInSemibreves = GetValueInUnit(valueInMinimsInMiddleSeq);
+            // CHECK SUM --> IS IT INTEGER when dot of division???
+            // CHECK REMAINDER
+            if(valueInSemibreves == int(valueInSemibreves)){
+                FindDurQuals(sequence, valueInSemibreves);
+            } else {
+                // ERROR!
+                std::cout << "Error!" << std::endl;
+            }
+        } else {
+            std::__wrap_iter<std::pair<vrv::LayerElement *, vrv::data_DURATION> *> dotOfDiv = std::find(sequence.begin(), sequence.end(), dotElementDurPair);
+            std::vector<std::pair<LayerElement*, data_DURATION>> firstHalfMiddleSeq = {sequence.begin(), dotOfDiv-1};
+            std::vector<std::pair<LayerElement*, data_DURATION>> secondHalfMiddleSeq = {dotOfDiv+1, sequence.end()};
+            //FindDurQuals(firstHalfMiddleSeq, valueInSemibrevesFirstHalf);
+            //FindDurQuals(secondHalfMiddleSeq, valueInSemibrevesSecondHalf);
+        }
+        
+    }
 }
 
-void ScoringUpFunctor::FindDurQuals(std::vector<std::pair<LayerElement*, data_DURATION>> sequence){
+std::vector<std::pair<LayerElement*, data_DURATION>> ScoringUpFunctor::GetBoundedNotes(std::vector<std::pair<LayerElement*, data_DURATION>> sequence) {
     std::vector<std::pair<LayerElement*, data_DURATION>> middleSeq = {};
     if (sequence.size() >= 2) {
         data_DURATION firstNoteDur = sequence.at(0).second;
@@ -116,8 +143,10 @@ void ScoringUpFunctor::FindDurQuals(std::vector<std::pair<LayerElement*, data_DU
         } else {
             middleSeq = {sequence.begin() + 1, sequence.end() - 1};
         }
-    }
+    } return middleSeq;
+}
 
+std::pair<LayerElement*, data_DURATION> ScoringUpFunctor::FindDotOfDivision(std::vector<std::pair<LayerElement*, data_DURATION>> middleSeq) {
     // Check if there are dots in the middleSeq and how many. The dots in the middleSeq are the only ones that have the possibility of being a dot of imperfection (or alteration) or a dot of augmentation---the dots of perfection are not in the middleSeq.
     std::vector<int> indecesOfDots;
     for (int i = 0; i < middleSeq.size(); i++) {
@@ -127,17 +156,44 @@ void ScoringUpFunctor::FindDurQuals(std::vector<std::pair<LayerElement*, data_DU
         }
     }
     int numberOfDots = (int)indecesOfDots.size();
-    if (numberOfDots >= 1) {
+    if (numberOfDots == 1){ // Only dot
+        int i = indecesOfDots.at(0);
+        std::vector<std::pair<LayerElement*, data_DURATION>> firstHalfMiddleSeq = {middleSeq.begin(), middleSeq.begin() + (i - 1)};
+        std::vector<std::pair<LayerElement*, data_DURATION>> secondHalfMiddleSeq = {middleSeq.begin() + (i + 1), middleSeq.end()};
+        double valueInSemibrevesFirstHalf = GetValueInUnit(GetValueInMinims(firstHalfMiddleSeq));
+        double valueInSemibrevesSecondHalf = GetValueInUnit(GetValueInMinims(secondHalfMiddleSeq));
+        
+        if ((valueInSemibrevesFirstHalf == (int)valueInSemibrevesFirstHalf) && (valueInSemibrevesSecondHalf == (int)valueInSemibrevesSecondHalf)){
+            // Dot of division and process separately the first and second half of the sequence
+            std::pair<LayerElement*, data_DURATION> dotElementDurPair = middleSeq.at(i);
+            return dotElementDurPair;
+        } else {
+            // Dot of augmentation and process the middle notes of the sequence all together
+            return {NULL, DURATION_NONE};
+        }
+        // CHECK SUM --> IS IT INTEGER when dot of division???
+    } else if (numberOfDots > 1) {
         // Take first dot and evaluate if it is a dot of imperfection (check if it is "integer number of semibreves" away from the beginning of the sequence, and if the rest of the sequence still sums an integer number)
         
         // Take last dot and evaluate if it is a dot of division (check if it is "integer number of semibreves" away from the end of the sequence, and if the rest of the sequence still sums an integer number)
         
         // If neither, all dots are dots of augmentation
-        if (numberOfDots == 1){
-            
-        }
+        
+        // 1. First dot
+        int i = indecesOfDots.at(0);
+        std::vector<std::pair<LayerElement*, data_DURATION>> firstHalfMiddleSeq = {middleSeq.begin(), middleSeq.begin() + (i - 1)};
+        std::vector<std::pair<LayerElement*, data_DURATION>> secondHalfMiddleSeq = {middleSeq.begin() + (i + 1), middleSeq.end()};
+        
+        // 2. Last dot
+        
+        // 3. Neither
+        return NULL;
+    } else {
+        return NULL;
     }
+}
 
+double ScoringUpFunctor::GetValueInMinims(std::vector<std::pair<LayerElement*, data_DURATION>> middleSeq) {
     // Value in minims:
     double sum = 0;
     bool followedByDot = false;
@@ -151,12 +207,17 @@ void ScoringUpFunctor::FindDurQuals(std::vector<std::pair<LayerElement*, data_DU
         } else {
             followedByDot = false;
         } sum += GetDurNumberValue(elementDurPair, followedByDot, nextElement);
-    } sum = sum/2;
-    int remainder = (int)sum % 3;
+    } return sum;
+}
 
-    // CHECK SUM --> IS IT INTEGER when dot of division???
-    // CHECK REMAINDER
+double ScoringUpFunctor::GetValueInUnit(double valueInMinims){
+    double valueInSemibreves = valueInMinims/2;
+    return valueInSemibreves;
+}
 
+void ScoringUpFunctor::FindDurQuals(std::vector<std::pair<LayerElement*, data_DURATION>> sequence, int valueInSemibreves){
+    int sum = valueInSemibreves;
+    int remainder = sum % 3;
     // Flags:
     bool alterationFlag, impappFlag, impapaFlag;
     bool dotOfImperf = false;       //When true, it forces imperfection a parte post (a.p.p.)
@@ -164,8 +225,8 @@ void ScoringUpFunctor::FindDurQuals(std::vector<std::pair<LayerElement*, data_DU
 
     // Principles of imperfection and Alteration (and their exceptions).
     // The implementation is based on the rules outlined by Willi Apel, with perfect groupings of notes and the remainder:
-    if (sum < 3) { // For sum = 0, 1, 2, or 3
-        switch (remainder) {
+    if (sum <= 3) { // For sum = 0, 1, 2, or 3
+        switch (sum) {
             case 0:
                 break; //No modifications
             case 1:
@@ -181,11 +242,11 @@ void ScoringUpFunctor::FindDurQuals(std::vector<std::pair<LayerElement*, data_DU
                     ImperfectionAPA(sequence);
                     break;
                 } break;
-        }
-    } else if (sum == 3){
-        bool leavePerfectFlag = LeavePerfect(sequence);
-        if (!leavePerfectFlag || dotOfImperf) {
-            
+            case 3:
+                bool leavePerfectFlag = LeavePerfect(sequence);
+                if (!leavePerfectFlag || dotOfImperf) {
+                    
+                } break;
         }
     } else { // For sum > 3
         switch (remainder) {
@@ -283,22 +344,22 @@ double ScoringUpFunctor::GetDurNumberValue(std::pair<LayerElement*, data_DURATIO
     } return durnum;
 }
 
-bool ScoringUpFunctor::ImperfectionAPP(std::vector<std::pair<LayerElement*, data_DURATION>> sequence) {
-    std::pair<LayerElement*, data_DURATION> firstElementDurPair = sequence.at(0);
+bool ScoringUpFunctor::ImperfectionAPP(std::vector<std::pair<LayerElement*, data_DURATION>> boundedSequence) {
+    std::pair<LayerElement*, data_DURATION> firstElementDurPair = boundedSequence.at(0);
     LayerElement* firstElement = firstElementDurPair.first;
     data_DURATION firstDur = firstElementDurPair.second;
     LayerElement* nextElement;
-    /// Evaluates if the first note in the sequence is a brevis. If it is, then it imperfects it (and returns true). If it is a rest or a larger note, then it forbids imperfection (and returns false).
+    /// Evaluates if the first note in the boundedSequence is a brevis. If it is, then it imperfects it (and returns true). If it is a rest or a larger note, then it forbids imperfection (and returns false).
     if (firstElement->Is(NOTE) && firstDur == DURATION_brevis) {
         /// Before imperfecting the starting brevis, check if it is followed by a dot. If it is, this would be a dot of perfectio, i.e., a dot that forces perfection (forbidding the imperfection and returning false). Otherwise, if there is no dot following the starting brevis, proceed to perform the imperfection a.p.p. and return true.
-        nextElement = sequence.at(1).first;
+        nextElement = boundedSequence.at(1).first;
         if (nextElement->Is(DOT)) {
             /// Dot of perfection (type of dot of division)
             Dot *dot = vrv_cast<Dot *>(nextElement);
             dot->SetForm(dotLog_FORM_div);
             return false;
         } else {
-            /// Imperfection a.p.p. (i.e., imperfection by the following notes), unless the note has already been modified by the previous sequence
+            /// Imperfection a.p.p. (i.e., imperfection by the following notes), unless the note has already been modified by the previous boundedSequence
             Note *firstNote = vrv_cast<Note *>(firstElement);
             assert(firstNote);
             if (firstNote->HasDurQuality()){
@@ -315,11 +376,11 @@ bool ScoringUpFunctor::ImperfectionAPP(std::vector<std::pair<LayerElement*, data
     }
 }
 
-bool ScoringUpFunctor::ImperfectionAPA(std::vector<std::pair<LayerElement*, data_DURATION>> sequence) {
-    std::pair<LayerElement*, data_DURATION> lastElementDurPair = sequence.at(sequence.size()-1);
+bool ScoringUpFunctor::ImperfectionAPA(std::vector<std::pair<LayerElement*, data_DURATION>> boundedSequence) {
+    std::pair<LayerElement*, data_DURATION> lastElementDurPair = boundedSequence.at(boundedSequence.size()-1);
     LayerElement* lastElement = lastElementDurPair.first;
     data_DURATION lastDur = lastElementDurPair.second;
-    /// Evaluates if the last note in the sequence is a brevis. If it is, then it imperfects it (and returns true). If it is a rest or a larger note, then it forbids imperfection (and returns false).
+    /// Evaluates if the last note in the boundedSequence is a brevis. If it is, then it imperfects it (and returns true). If it is a rest or a larger note, then it forbids imperfection (and returns false).
     if (lastElement->Is(NOTE) && lastDur == DURATION_brevis){
         Note *lastNote = vrv_cast<Note *>(lastElement);
         assert(lastNote);
@@ -330,11 +391,11 @@ bool ScoringUpFunctor::ImperfectionAPA(std::vector<std::pair<LayerElement*, data
     }
 }
 
-bool ScoringUpFunctor::Alteration(std::vector<std::pair<LayerElement*, data_DURATION>> sequence){
-    std::pair<LayerElement*, data_DURATION> penultElementDurPair = sequence.at(sequence.size()-2);
+bool ScoringUpFunctor::Alteration(std::vector<std::pair<LayerElement*, data_DURATION>> boundedSequence){
+    std::pair<LayerElement*, data_DURATION> penultElementDurPair = boundedSequence.at(boundedSequence.size()-2);
     LayerElement* penultElement = penultElementDurPair.first;
     data_DURATION penultDur = penultElementDurPair.second;
-    ///Evaluates what is the type of the penultimate element in the sequence. If it is a rest, it forbids Alteration (returns false). If it is a note, and the note is a 'semibrevis', it alters the note (and returns true).
+    ///Evaluates what is the type of the penultimate element in the boundedSequence. If it is a rest, it forbids Alteration (returns false). If it is a note, and the note is a 'semibrevis', it alters the note (and returns true).
     if (penultElement->Is(NOTE) && penultDur == DURATION_semibrevis) {
         Note *penultNote = vrv_cast<Note *>(penultElement);
         assert(penultNote);
@@ -345,7 +406,7 @@ bool ScoringUpFunctor::Alteration(std::vector<std::pair<LayerElement*, data_DURA
     }
 }
 
-bool ScoringUpFunctor::LeavePerfect(std::vector<std::pair<LayerElement*, data_DURATION>> sequence){
+bool ScoringUpFunctor::LeavePerfect(std::vector<std::pair<LayerElement*, data_DURATION>> boundedSequence){
     return true;
 }
 

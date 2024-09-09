@@ -41,14 +41,20 @@ public:
      * @name: Divide the notes of a voice into sequences to be processed individualy
      */
     ///@{
-    std::vector<std::vector<std::pair<LayerElement*, data_DURATION>>> SubdivideSeq(std::vector<std::pair<LayerElement*, data_DURATION>> dursInVoiceSameMensur);
+    std::vector<std::vector<std::pair<LayerElement*, data_DURATION>>> SubdivideIntoBoundedSequences(std::vector<std::pair<LayerElement*, data_DURATION>> dursInVoiceSameMensur);
     ///@}
     /**
      * @name: Find @dur.quality of notes (perfecta / imperfecta / altera)
      */
     ///@{
-    void FindDurQuals(std::vector<std::vector<std::pair<LayerElement*, data_DURATION>>> listOfSequences);
-    void FindDurQuals(std::vector<std::pair<LayerElement*, data_DURATION>> sequence);
+    //void FindDurQuals(std::vector<std::vector<std::pair<LayerElement*, data_DURATION>>> listOfSequences);
+    void ProcessBoundedSequences(std::vector<std::vector<std::pair<LayerElement*, data_DURATION>>> listOfSequences);
+    std::vector<std::pair<LayerElement*, data_DURATION>> GetBoundedNotes(std::vector<std::pair<LayerElement*, data_DURATION>> sequence);
+    std::pair<LayerElement*, data_DURATION> FindDotOfDivision(std::vector<std::pair<LayerElement*, data_DURATION>> middleSeq);
+    double GetValueInMinims(std::vector<std::pair<LayerElement*, data_DURATION>> middleSeq);
+    double GetValueInUnit(double valueInMinims);
+    //void FindDurQuals(std::vector<std::pair<LayerElement*, data_DURATION>> sequence);
+    void FindDurQuals(std::vector<std::pair<LayerElement*, data_DURATION>> sequence, int valueInSemibreves);
     ///@}
     /**
     * @name: Find the duration value of the note in minims
